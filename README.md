@@ -2,110 +2,92 @@
 
 ## Table of Contents
 
-- [Scenario](#scenario)
 - [Overview](#overview)
-- [Real-World Use Case](#real-world-use-case)
+- [Real-World Business Value](#real-world-business-value)
 - [Prerequisites](#prerequisites)
 - [Project Folder Structure](#project-folder-structure)
-- [Tasks Completed](#tasks-completed)
-
-  - [1. Provisioning Resources](#1-provisioning-resources)
-  - [2. Lambda Python Code](#2-lambda-python-code)
-  - [3. Zipping the Lambda Code](#3-zipping-the-lambda-code)
-  - [4. Lambda and IAM Configuration](#4-lambda-and-iam-configuration)
-  - [5. Event Trigger with EventBridge](#5-event-trigger-with-eventbridge)
-
-- [Code Snippet Breakdown for Hiring Managers](#code-snippet-breakdown-for-hiring-managers)
+- [Tasks and Implementation Steps](#tasks-and-implementation-steps)
+- [Core Implementation Breakdown](#core-implementation-breakdown)
+- [Local Testing and Debugging](#local-testing-and-debugging)
+- [IAM Role and Permissions](#iam-role-and-permissions)
+- [Design Decisions and Highlights](#design-decisions-and-highlights)
+- [Skills Demonstrated](#skills-demonstrated)
 - [Conclusion](#conclusion)
-
----
-
-## Scenario
-
-A company frequently provisions Elastic IPs (EIPs) for its EC2 instances. However, over time, some of these EIPs remain unassociated, leading to unnecessary charges. The objective of this project is to automate the identification and release of unassociated Elastic IPs to optimize cost management and enforce infrastructure hygiene.
 
 ---
 
 ## Overview
 
-This solution implements an automated cleanup process using an AWS Lambda function triggered daily by an Amazon EventBridge rule. The Lambda function scans all EIPs within the VPC scope and releases those that are unassociated. The entire infrastructure is defined using Terraform to ensure repeatable and version-controlled deployments.
+This project implements an automated cost optimisation solution that identifies and releases unassociated Elastic IP addresses (EIPs) using AWS Lambda, EventBridge, and Terraform. The solution addresses the common enterprise challenge of EIP sprawl, where unused IP addresses accumulate over time, generating unnecessary AWS charges.
+
+The architecture employs a serverless Lambda function triggered daily via EventBridge scheduling, scanning all VPC-scoped EIPs and releasing those without active associations. Infrastructure provisioning utilises Terraform for reproducible, version-controlled deployments with least-privilege IAM policies.
 
 ---
 
-## Real-World Use Case
+## Real-World Business Value
 
-Elastic IPs are a limited and billable AWS resource. AWS charges for any EIP that is not associated with a running EC2 instance. In large-scale environments with dynamic provisioning, EIPs can accumulate unintentionally, contributing to unnecessary monthly costs. This project provides a practical, automated approach to identify and release such idle IPs, enforcing best practices in cloud resource management.
+Elastic IPs represent a finite AWS resource with direct billing implications—AWS charges for any EIP not associated with a running EC2 instance. In enterprise environments with dynamic infrastructure provisioning, unassociated EIPs can accumulate rapidly, contributing to significant monthly cost overruns.
+
+This automation solution delivers:
+- **Cost Reduction**: Eliminates charges for idle EIPs (typically $0.005/hour per unassociated EIP)
+- **Resource Governance**: Enforces infrastructure hygiene through automated cleanup
+- **Operational Efficiency**: Reduces manual intervention in resource management
+- **Compliance**: Supports cloud cost management policies and resource utilisation standards
 
 ---
 
 ## Prerequisites
 
-- AWS CLI installed and configured
-- IAM role with appropriate Lambda and EC2 permissions
-- Python 3.11 environment (for local testing)
-- Terraform v1.3+ and AWS provider v5+
-- VSCode or any IDE with Python and Terraform support
+- AWS CLI v2.x installed and configured with appropriate credentials
+- Terraform v1.3+ with AWS Provider v5+
+- Python 3.11 runtime environment
+- IAM permissions for Lambda, EC2, EventBridge, and CloudWatch services
+- Basic understanding of AWS VPC networking and Elastic IP concepts
 
 ---
 
 ## Project Folder Structure
 
 ```
-├── lambda
-│   ├── event.json
-│   ├── lambda_function.py
-│   └── lambda_function.zip
-├── README.md
-├── requirements.txt
-├── scripts
-│   └── package-lambda.sh
-├── terraform
-│   ├── ec2.tf
-│   ├── eventbridge.tf
-│   ├── lambda.tf
-│   ├── main.tf
-│   ├── outputs.tf
-│   ├── terraform.tfstate
-│   ├── terraform.tfstate.backup
-│   ├── terraform.tfvars
-│   ├── variables.tf
-│   └── vpc.tf
-└── venv
+automated-eip-cleanup-with-lambda-1/
+├── lambda/
+│   ├── event.json              # Test event payload for local debugging
+│   ├── lambda_function.py      # Core Lambda function implementation
+│   └── lambda_function.zip     # Packaged deployment artifact
+├── scripts/
+│   └── package-lambda.sh       # Automated packaging script
+├── terraform/
+│   ├── main.tf                 # Provider and backend configuration
+│   ├── variables.tf            # Input variable definitions
+│   ├── terraform.tfvars        # Environment-specific values
+│   ├── vpc.tf                  # VPC and networking resources
+│   ├── ec2.tf                  # EC2 instances and EIP associations
+│   ├── lambda.tf               # Lambda function and IAM configuration
+│   ├── eventbridge.tf          # EventBridge scheduling rules
+│   └── outputs.tf              # Resource output definitions
+├── requirements.txt            # Python dependencies
+└── README.md
 ```
 
 ---
 
-## Tasks Completed
+## Tasks and Implementation Steps
 
-Each component of this automation project was designed with operational efficiency, security, and maintainability in mind.
+The implementation follows a systematic approach to infrastructure provisioning, code development, and automation configuration:
 
-### 1. Provisioning Resources
+1. **Infrastructure Provisioning**: Terraform configuration creates test EIPs, EC2 instances, and VPC resources
+2. **Lambda Development**: Python function implementation with Boto3 SDK integration
+3. **Deployment Automation**: Shell scripting and Terraform archive data sources for packaging
+4. **IAM Security Configuration**: Least-privilege role and policy definitions
+5. **Event Scheduling**: EventBridge rule configuration for automated execution
 
-Three Elastic IPs were created using Terraform. One EIP was associated with an EC2 instance to simulate real-world infrastructure. The remaining EIPs remain unassociated to demonstrate the cleanup mechanism.
+---
 
-```hcl
-resource "aws_eip" "eip_1" {
-  domain = "vpc"
-  tags   = var.tags
-}
+## Core Implementation Breakdown
 
-resource "aws_instance" "boto3_eip_ec2" {
-  ami             = data.aws_ami.amazon_linux.id
-  instance_type   = "t2.micro"
-  subnet_id       = data.aws_subnet_ids.default.ids[0]
-  security_groups = [aws_security_group.boto3_eip_sg.id]
-  tags            = var.tags
-}
+### Lambda Function Architecture
 
-resource "aws_eip_association" "boto3_eip_association" {
-  instance_id   = aws_instance.boto3_eip_ec2.id
-  allocation_id = aws_eip.eip_1.id
-}
-```
-
-### 2. Lambda Python Code
-
-The Lambda function, written in Python using Boto3, iterates over all Elastic IP addresses in the VPC. It checks whether each EIP is unassociated (i.e., not attached to an instance or network interface) and releases it. Logging is included for transparency, and errors are handled gracefully to avoid failed executions.
+The core Lambda function utilises the Boto3 EC2 resource interface to enumerate and evaluate all VPC-scoped Elastic IP addresses:
 
 ```python
 import boto3
@@ -129,34 +111,17 @@ def lambda_handler(event, context):
     }
 ```
 
-### 3. Zipping the Lambda Code
+**Key Implementation Features:**
+- Resource-based Boto3 interface for simplified EIP management
+- Comprehensive error handling to prevent execution failures
+- Structured logging for operational visibility
+- Atomic operations with individual EIP release attempts
 
-A shell script was developed to streamline the packaging of the Lambda function. This approach promotes automation and eliminates manual steps when updating code.
+### Terraform Infrastructure Configuration
 
-```bash
-#!/bin/bash
-set -e
+The Terraform configuration employs modular resource definitions across multiple files:
 
-echo "Zipping Lambda function..."
-cd "$(dirname "$0")/../lambda" || exit 1
-zip -r lambda_function.zip lambda_function.py > /dev/null
-echo "Lambda function zipped as lambda/lambda_function.zip"
-```
-
-Alternatively, the `archive_file` data source in Terraform automates the packaging process during the provisioning stage:
-
-```hcl
-data "archive_file" "lambda_package" {
-  type        = "zip"
-  source_file = "${path.module}/../lambda/lambda_function.py"
-  output_path = "${path.module}/../lambda/lambda_function.zip"
-}
-```
-
-### 4. Lambda and IAM Configuration
-
-The Lambda function is defined in Terraform, and its execution role is restricted to only the necessary permissions. This demonstrates the principle of least privilege by limiting access to EC2 address operations and log streaming.
-
+**Lambda Function Definition** ([terraform/lambda.tf](terraform/lambda.tf)):
 ```hcl
 resource "aws_lambda_function" "ElasticIPCleanupLambda" {
   function_name    = var.lambda_function_name
@@ -168,20 +133,81 @@ resource "aws_lambda_function" "ElasticIPCleanupLambda" {
   timeout          = 30
   tags             = var.tags
 }
+```
 
-resource "aws_iam_role" "boto3_eip_lambda_role" {
-  name = "boto3-eip-lambda-role"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Principal = { Service = "lambda.amazonaws.com" },
-      Action = "sts:AssumeRole"
-    }]
-  })
-  tags = var.tags
+**Automated Packaging** ([terraform/lambda.tf](terraform/lambda.tf)):
+```hcl
+data "archive_file" "lambda_package" {
+  type        = "zip"
+  source_file = "${path.module}/../lambda/lambda_function.py"
+  output_path = "${path.module}/../lambda/lambda_function.zip"
+}
+```
+
+### EventBridge Scheduling Integration
+
+Daily execution scheduling utilises EventBridge with explicit Lambda invocation permissions:
+
+```hcl
+resource "aws_cloudwatch_event_rule" "boto3_eip_cw_rule" {
+  name                = "daily-eip-cleanup-rule"
+  description         = "Triggers the Elastic IP Cleanup Lambda daily"
+  schedule_expression = "rate(1 day)"
 }
 
+resource "aws_lambda_permission" "allow_cloudwatch" {
+  statement_id  = "AllowExecutionFromCloudWatch"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ElasticIPCleanupLambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.boto3_eip_cw_rule.arn
+}
+```
+
+---
+
+## Local Testing and Debugging
+
+Local development and testing employed multiple validation approaches:
+
+**Manual Lambda Testing:**
+```bash
+# Package function locally
+./scripts/package-lambda.sh
+
+# Test with sample event payload
+aws lambda invoke \
+  --function-name ElasticIPCleanupLambda \
+  --payload file://lambda/event.json \
+  response.json
+```
+
+**EIP State Validation:**
+```bash
+# Verify EIP associations before execution
+aws ec2 describe-addresses --query 'Addresses[?InstanceId==null]'
+
+# Monitor CloudWatch logs during execution
+aws logs tail /aws/lambda/ElasticIPCleanupLambda --follow
+```
+
+**Terraform State Verification:**
+```bash
+# Validate infrastructure state
+terraform plan -detailed-exitcode
+terraform apply -auto-approve
+
+# Verify resource creation
+terraform output
+```
+
+---
+
+## IAM Role and Permissions
+
+The implementation follows least-privilege security principles with precisely scoped IAM permissions:
+
+```hcl
 resource "aws_iam_role_policy" "boto3_eip_lambda_policy" {
   name = "boto3-eip-cleanup-policy"
   role = aws_iam_role.boto3_eip_lambda_role.id
@@ -203,38 +229,66 @@ resource "aws_iam_role_policy" "boto3_eip_lambda_policy" {
 }
 ```
 
-### 5. Event Trigger with EventBridge
+**Security Considerations:**
+- Minimal EC2 permissions limited to address operations only
+- CloudWatch logging permissions for operational visibility
+- No broad administrative or cross-service access granted
+- Role assumption restricted to Lambda service principal
 
-Terraform provisions an EventBridge rule that invokes the Lambda function daily. Permissions are explicitly granted to allow EventBridge to trigger the Lambda.
+---
 
-```hcl
-resource "aws_cloudwatch_event_rule" "boto3_eip_cw_rule" {
-  name                = "daily-eip-cleanup-rule"
-  description         = "Triggers the Elastic IP Cleanup Lambda daily"
-  schedule_expression = "rate(1 day)"
-}
+## Design Decisions and Highlights
 
-resource "aws_cloudwatch_event_target" "boto3_eip_cw_target" {
-  rule      = aws_cloudwatch_event_rule.boto3_eip_cw_rule.name
-  target_id = "eip-cleanup-target"
-  arn       = aws_lambda_function.ElasticIPCleanupLambda.arn
-}
+**Architecture Choices:**
+- **Serverless Approach**: Lambda eliminates infrastructure management overhead whilst providing cost-effective execution for infrequent operations
+- **Resource-Based Boto3 Interface**: Simplified EIP management compared to client-based approaches, reducing code complexity
+- **EventBridge Scheduling**: Native AWS scheduling service provides reliable, managed cron functionality without external dependencies
 
-resource "aws_lambda_permission" "allow_cloudwatch" {
-  statement_id  = "AllowExecutionFromCloudWatch"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.ElasticIPCleanupLambda.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.boto3_eip_cw_rule.arn
-}
-```
+**Terraform Implementation:**
+- **Modular Configuration**: Separate files for logical resource groupings improve maintainability and code organisation
+- **Automated Packaging**: `archive_file` data source eliminates manual deployment steps and ensures consistent artifact generation
+- **Variable Parameterisation**: Configurable function names and tags support multi-environment deployments
+
+**Operational Considerations:**
+- **Error Isolation**: Individual EIP release attempts prevent single failures from affecting batch operations
+- **Comprehensive Logging**: Structured output supports troubleshooting and audit requirements
+- **Timeout Configuration**: 30-second timeout provides adequate execution time whilst preventing runaway processes
+
+---
+
+## Skills Demonstrated
+
+**Cloud Architecture:**
+- AWS Lambda serverless function design and implementation
+- EventBridge event-driven architecture patterns
+- VPC networking and Elastic IP resource management
+
+**Infrastructure as Code:**
+- Terraform resource provisioning and state management
+- Modular configuration design and variable parameterisation
+- Automated deployment pipeline integration
+
+**Security Engineering:**
+- IAM least-privilege policy design and implementation
+- AWS service principal configuration and role assumption
+- Resource-level access control and permission scoping
+
+**Software Development:**
+- Python development with AWS SDK (Boto3) integration
+- Error handling and exception management patterns
+- Structured logging and operational visibility implementation
+
+**DevOps Practices:**
+- Automated packaging and deployment scripting
+- Infrastructure testing and validation procedures
+- Version-controlled infrastructure management
 
 ---
 
 ## Conclusion
 
-This project demonstrates the practical application of AWS automation to eliminate wasteful cloud spending. By integrating Lambda, Terraform, and EventBridge, the solution enforces cost controls and exemplifies scalable cloud operations. It follows infrastructure-as-code principles and security best practices, making it a strong portfolio piece for DevOps and Cloud Engineering roles.
+This project demonstrates practical application of AWS automation to address real-world cost optimisation challenges. The solution combines serverless computing, infrastructure as code, and event-driven architecture to deliver automated resource management with minimal operational overhead.
 
-It also lays a foundation for expanding into other resource cleanup tasks, such as idle volumes, untagged instances, or unattached security groups.
+The implementation showcases enterprise-grade practices including least-privilege security, modular infrastructure design, and comprehensive error handling. The architecture provides a foundation for expanding into broader resource cleanup automation, including idle EBS volumes, untagged instances, and orphaned security groups.
 
----
+Key technical achievements include seamless integration of multiple AWS services, robust error handling for production reliability, and maintainable Terraform configurations supporting multi-environment deployments.
